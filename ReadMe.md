@@ -4,6 +4,8 @@
 
 Build an end-to-end **Remaining Useful Life (RUL)** prediction pipeline for Backblaze hard drives using real quarterly failure data from 2024. The project aims to predict hard drive failures at multiple time horizons (2, 7, 14, and 30 days) to enable proactive maintenance and data protection strategies.
 
+The link to Jupyter Notebook can be found here: [Link to Jupyter Notebook](/Project4.ipynb)
+
 ### Key Objectives
 - Extract and process raw Backblaze quarterly ZIP files (Q1-Q4 2024)
 - Perform exploratory data analysis (EDA) on drive records
