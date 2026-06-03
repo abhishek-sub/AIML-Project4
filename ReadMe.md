@@ -6,6 +6,20 @@ Build an end-to-end **Remaining Useful Life (RUL)** prediction pipeline for Back
 
 The link to Jupyter Notebook can be found here: [Link to Jupyter Notebook](/Project4.ipynb)
 
+### Latest Notebook Results Snapshot
+
+This section summarizes the most recent results from the Jupyter notebook in plain language.
+
+**Project data used in the latest run:**
+- 3,816,524 drive records from 2024
+- 590 observed failures
+- Overall observed failure rate: 0.0155%
+- Prediction windows: 2, 7, 14, and 30 days before failure
+
+**What the model is trying to do:**
+- Rank drives by how likely they are to fail soon so maintenance teams can act earlier.
+- Because failures are very rare, the project uses **PR-AUC** as the main selection metric. In simple terms, this helps measure how well the model identifies truly risky drives without over-alerting on healthy ones.
+
 ### Key Objectives
 - Extract and process raw Backblaze quarterly ZIP files (Q1-Q4 2024)
 - Perform exploratory data analysis (EDA) on drive records
@@ -68,7 +82,7 @@ SMART stands for **Self-Monitoring, Analysis and Reporting Technology** — a mo
 - **Threshold** — Critical value set by manufacturer; exceeding triggers alarm
 - **Status** — Current health assessment (OK, Caution, Critical)
 
-### Selected SMART Metrics (13 Used in Project)
+### Selected SMART Metrics (8 Used in Project)
 
 #### **1. SMART 5 — Reallocated Sectors Count**
 - **Raw Value:** Number of sectors remapped to spare sectors
@@ -187,14 +201,14 @@ SMART stands for **Self-Monitoring, Analysis and Reporting Technology** — a mo
 
 **Source Data:**
 - Backblaze quarterly CSV files in ZIP archives (data_Q1_2024.zip through data_Q4_2024.zip)
-- ~3.4M records with 13 selected SMART metrics and drive metadata
+- 3,816,524 records with 8 selected SMART metrics and drive metadata
 
 **Multi-Encoding File Handling:**
 - Implemented robust multi-encoding fallback strategy (UTF-8 → Latin-1 → ISO-8859-1 → CP1252)
 - Prevents `UnicodeDecodeError` when reading CSV files with mixed encodings
 - Uses BytesIO for reliable in-memory file operations
 
-**Feature Selection (13 Columns):**
+**Initial Extraction Columns (13 Columns):**
 ```python
 [
     'date',              # Observation date
@@ -213,6 +227,14 @@ SMART stands for **Self-Monitoring, Analysis and Reporting Technology** — a mo
 ]
 ```
 
+**Post-Cleaning Modeling Features (6 Columns):**
+- `smart_5_raw`
+- `smart_9_raw`
+- `smart_196_raw`
+- `smart_197_raw`
+- `smart_198_raw`
+- `capacity_bytes`
+
 **Temporal Tracking:**
 - Added `data_quarter` column during extraction to track which ZIP each record originated from
 - Enables temporal validation and prevents data leakage
@@ -225,8 +247,8 @@ SMART stands for **Self-Monitoring, Analysis and Reporting Technology** — a mo
 
 **Missing Value Analysis:**
 - Analyzed missing data percentages across all features
-- Applied median imputation for SMART columns
-- Dropped columns with >95% missing values (none identified)
+- Applied median imputation for retained modeling features
+- Dropped columns with >95% missing values: `smart_187_raw`, `smart_188_raw`, `smart_189_raw`
 
 **Outlier Detection:**
 - Used Interquartile Range (IQR) method: `[Q1 - 1.5×IQR, Q3 + 1.5×IQR]`
@@ -245,19 +267,19 @@ SMART stands for **Self-Monitoring, Analysis and Reporting Technology** — a mo
 - Identified quarterly trends in failure patterns
 
 **Univariate Analysis:**
-- Examined distributions of all 13 SMART features
+- Examined distributions of all 8 SMART features
 - Computed descriptive statistics (mean, median, std, min, max)
 - Identified skewed distributions (e.g., power-on hours)
 
 **Class Balance Assessment:**
-- Observed severe class imbalance (0.0439% failures at 2-day horizon)
-- Imbalance ratio: ~990:1 (non-failures to failures)
+- Observed severe class imbalance (0.0155% failures overall; 0.0439% at 2-day horizon)
+- Imbalance ratio: ~6468:1 overall (non-failures to failures)
 - Expected in operational datasets; impacts model evaluation metrics
 
 **Feature-Failure Correlation:**
 - Computed Pearson correlations between SMART metrics and failure
 - Performed Mann-Whitney U tests to identify significant feature differences
-- Identified smart_187_raw (uncorrectable errors) as most predictive feature
+- Found the strongest retained failure signals in pending/offline sector metrics and reallocation-related SMART features
 
 **Correlation Analysis:**
 - Built correlation matrix across all numeric features
@@ -303,15 +325,17 @@ horizon = 30 days:  Are failures predicted to occur within 30 days? (plan)
 **Model Architecture:**
 - **Algorithm:** Logistic Regression (simple, interpretable baseline)
 - **Scaling:** StandardScaler (fit on train, transform train/test)
-- **Imputation:** Median imputation for missing feature values
-- **Regularization:** Default L2 penalty (C=1.0)
-- **Hyperparameters:** max_iter=1000, random_state=42, n_jobs=-1 (parallel)
+- **Resampling:** SMOTE applied on the training split for each horizon
+- **Class Weighting:** `class_weight='balanced'`
+- **Regularization:** L2 penalty with scikit-learn defaults
+- **Hyperparameters:** `max_iter=1000`, `random_state=42`, `n_jobs=-1`
 
 **Training Process:**
 1. For each horizon (2, 7, 14, 30 days):
    - Extract target: `y = fail_within_{horizon}d`
    - Split features: X_train (Q1-Q3), X_test (Q4)
    - Scale training and test features
+  - Apply SMOTE to the training partition only
    - Train Logistic Regression
    - Store model, test data, and metrics
 
@@ -324,18 +348,29 @@ horizon = 30 days:  Are failures predicted to occur within 30 days? (plan)
 
 ---
 
-### Model Performance Summary
+### Baseline Logistic Regression Performance Summary
 
 | Horizon (days) | Samples | Positives | Positive Rate (%) | Accuracy | ROC-AUC | F1-Score | Status |
 |:--------------:|:-------:|:---------:|:-----------------:|:--------:|:-------:|:--------:|:------:|
-| 2 | 3,816,204 | 1,677 | 0.0439% | 0.9995 | 0.8664 | 0.0000 | ok |
-| 7 | 3,816,204 | 4,377 | 0.1147% | 0.9989 | 0.8576 | 0.0000 | ok |
-| 14 | 3,816,204 | 8,289 | 0.2172% | 0.9980 | 0.8359 | 0.0011 | ok |
-| 30 | 3,816,204 | 17,248 | 0.4520% | 0.9957 | 0.8104 | 0.0261 | ok |
+| 2 | 3,816,204 | 1,677 | 0.0439% | 0.9534 | 0.9213 | 0.0099 | ok |
+| 7 | 3,816,204 | 4,377 | 0.1147% | 0.9522 | 0.9181 | 0.0236 | ok |
+| 14 | 3,816,204 | 8,289 | 0.2172% | 0.9512 | 0.9116 | 0.0402 | ok |
+| 30 | 3,816,204 | 17,248 | 0.4520% | 0.9492 | 0.8989 | 0.0702 | ok |
+
+These baseline results come from the initial Logistic Regression model. The section below reports the best-performing models from the full notebook, including tuned tree-based and ensemble approaches.
+
+### Best-Performing Models by Prediction Horizon (Latest Overall Notebook Results)
+
+| Horizon | Best Model | Why It Was Chosen | PR-AUC | ROC-AUC | F1 |
+|--------|------------|-------------------|--------|---------|----|
+| 2 days | XGBoost_tuned_cal | Best PR-AUC for the shortest-term, urgent failure window | 0.0158 | 0.8869 | 0.0519 |
+| 7 days | Ensemble_softvote | Best PR-AUC across available 7-day models | 0.0327 | 0.9160 | 0.0716 |
+| 14 days | Ensemble_softvote | Best PR-AUC across available 14-day models | 0.0442 | 0.8988 | 0.0836 |
+| 30 days | Ensemble_softvote | Best PR-AUC for early-warning and maintenance planning | 0.0638 | 0.8784 | 0.1218 |
   
 ### Notebook Organization
 
-**backblaze_eda_exploratory.ipynb (Main Notebook)**
+**Project4.ipynb (Main Notebook)**
 - **Cell 1:** Dependencies & Setup
 - **Cells 2A-2D:** Data Extraction from ZIPs with temporal tracking
 - **Cell 2C:** Initial EDA
@@ -348,7 +383,9 @@ horizon = 30 days:  Are failures predicted to occur within 30 days? (plan)
 - **Cell 9:** Failure Relationships
 - **Cell 10:** Baseline model development (4 horizons, Logistic Regression)
 - **Cell 11:** Model evaluation (metrics, ROC curves, coefficients)
-- **Cell 13:** Executive summary & recommendations
+- **Cell 12:** Advanced tree-based models (Random Forest, XGBoost, LightGBM)
+- **Cell 13:** Improved calibrated models, ensemble comparison, and cross-model analysis
+- **Cell 14:** Executive summary & recommendations
 
 ---
 
@@ -368,12 +405,13 @@ pip install pandas numpy matplotlib seaborn scikit-learn scipy ipython jupyter
 
 2. **Start Jupyter:**
    ```bash
-   jupyter notebook backblaze_eda_exploratory.ipynb
+  jupyter notebook Project4.ipynb
    ```
 
 3. **Execute cells sequentially:**
-   - Cells 1-7: Data loading, extraction, EDA (no hyperparameter tuning)
-   - Cells 8-13: Feature engineering, modeling, evaluation
+  - Cells 1-9: Data loading, cleaning, EDA, and target engineering
+  - Cells 10-11: Baseline RUL models and evaluation
+  - Cells 12-14: Advanced models, ensemble comparison, and final summary
 
 4. **Output:**
    - EDA visualizations (distributions, correlations, time series)
@@ -399,14 +437,19 @@ The code supports both temporal and random splits. To use random split, uncommen
 
 ## Key Insights & Recommendations
 
+### Business Takeaway
+- The 30-day model is the best option for proactive planning because it gives the strongest early-warning signal.
+- The 2-day and 7-day models are useful for urgent interventions when a drive appears close to failure.
+- The ensemble approach performs best for the medium- and longer-term horizons, while XGBoost performs best for the shortest horizon.
+
 ### High Priority Actions
 1. **Use multi-horizon approach** — Different prediction windows enable tailored maintenance strategies
 2. **Focus on 2-day and 30-day horizons** — Provides both urgent and preventive windows
-3. **Monitor ROC-AUC primarily** — Ignore high accuracy; focus on discrimination ability
+3. **Monitor PR-AUC primarily** — Use ROC-AUC as a secondary ranking metric; accuracy is not reliable here
 4. **Apply class weighting per horizon** — Improve minority recall without sacrificing specificity
 
 ### Future Work
-1. Extend with advanced algorithms (Random Forest, XGBoost, LightGBM)
+1. Extend with support for multiple drives
 
 ---
 ## References
